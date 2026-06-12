@@ -1,0 +1,1300 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>台灣股票</title>
+  
+  <!-- PWA manifest 及 iOS 設定 -->
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#090d16">
+  <link rel="apple-touch-icon" href="icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- Google Fonts: Outfit 與 Noto Sans TC -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=Noto+Sans+TC:wght@300;400;500;700;900&display=swap" rel="stylesheet">
+  
+  <style>
+    body {
+      font-family: 'Outfit', 'Noto Sans TC', sans-serif;
+    }
+    
+    /* 卡片基本轉場動畫 */
+    .favorite-card {
+      transition: background-color 0.5s ease, border-color 0.5s ease, box-shadow 0.5s ease, transform 0.3s ease;
+    }
+    
+    /* 股價更新時的閃爍特效 */
+    .favorite-card.flash-red {
+      background-color: rgba(239, 68, 68, 0.45) !important;
+      border-color: rgba(239, 68, 68, 0.8) !important;
+      transform: scale(1.015);
+      box-shadow: 0 10px 20px -3px rgba(239, 68, 68, 0.3);
+    }
+    
+    .favorite-card.flash-green {
+      background-color: rgba(34, 197, 94, 0.45) !important;
+      border-color: rgba(34, 197, 94, 0.8) !important;
+      transform: scale(1.015);
+      box-shadow: 0 10px 20px -3px rgba(34, 197, 94, 0.3);
+    }
+    
+    .favorite-card.flash-gray {
+      background-color: rgba(100, 116, 139, 0.35) !important;
+      border-color: rgba(148, 163, 184, 0.6) !important;
+      transform: scale(1.01);
+    }
+    
+    /* 台灣股市 10% 漲跌停鎖定常亮燈 */
+    .favorite-card.limit-up {
+      background: linear-gradient(180deg, rgba(127, 29, 29, 0.5) 0%, rgba(127, 29, 29, 0.9) 100%) !important;
+      border-color: rgba(239, 68, 68, 0.9) !important;
+      border-width: 2px !important;
+      box-shadow: 0 10px 25px -3px rgba(239, 68, 68, 0.4);
+    }
+    
+    .favorite-card.limit-down {
+      background: linear-gradient(180deg, rgba(20, 83, 45, 0.5) 0%, rgba(20, 83, 45, 0.9) 100%) !important;
+      border-color: rgba(34, 197, 94, 0.9) !important;
+      border-width: 2px !important;
+      box-shadow: 0 10px 25px -3px rgba(34, 197, 94, 0.4);
+    }
+
+    /* 隱藏滾動條 */
+    ::-webkit-scrollbar {
+      display: none;
+    }
+
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 flex flex-col min-h-screen antialiased select-none pb-12">
+  
+  <!-- 背景氛圍光效 -->
+  <div class="fixed inset-0 bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 -z-10"></div>
+  <div class="fixed top-[-10%] left-[-10%] w-[60%] h-[50%] rounded-full bg-indigo-500/5 blur-[120px] -z-10 pointer-events-none"></div>
+  <div class="fixed bottom-[-10%] right-[-10%] w-[60%] h-[50%] rounded-full bg-rose-500/3 blur-[120px] -z-10 pointer-events-none"></div>
+
+  <!-- Toast 提示框容器 -->
+  <div id="toast-container" class="fixed bottom-6 inset-x-4 z-50 flex flex-col items-center gap-2 pointer-events-none"></div>
+
+  <!-- 右上角時間與倒數條固定區塊 (點擊時間即更新報價) -->
+  <div id="clock-widget" onclick="manualRefresh()" class="fixed top-4 right-4 z-40 bg-slate-900/90 backdrop-blur-md border border-slate-800/80 rounded-2xl p-2.5 flex flex-col items-center shadow-2xl min-w-[105px] cursor-pointer hover:bg-slate-850/90 active:scale-95 transition-all select-none" title="點擊時間即時更新報價">
+    <div id="live-clock" class="text-sm font-black tracking-wider font-mono text-indigo-400">00:00:00</div>
+    <div id="countdown-bar-container" class="w-full h-1 bg-slate-850 rounded-full overflow-hidden mt-1.5 relative">
+      <div id="countdown-bar-fill" class="h-full bg-gradient-to-r from-indigo-500 to-violet-500 rounded-full w-full transition-all duration-1000 linear"></div>
+    </div>
+    <div class="flex items-center justify-between w-full mt-1.5 px-0.5">
+      <span id="countdown-label" class="text-[9px] font-bold text-slate-500 uppercase tracking-wider">更新倒數</span>
+      <span id="countdown-text" class="text-[10px] font-black font-mono text-slate-400">20s</span>
+    </div>
+  </div>
+
+  <!-- 主應用程式介面 -->
+  <main class="max-w-4xl mx-auto px-4 pt-6 w-full flex-grow flex flex-col">
+    
+    <!-- 頂部標題 -->
+    <div class="flex items-center justify-between mb-5 pr-[220px]">
+      <div>
+        <h1 class="text-2xl font-black tracking-wider bg-clip-text text-transparent bg-gradient-to-r from-indigo-200 via-slate-100 to-indigo-200">台灣股票</h1>
+        <p onclick="forceUpdateApp()" class="text-xs text-slate-500 hover:text-rose-400 active:scale-95 font-bold tracking-widest mt-0.5 uppercase cursor-pointer transition-all inline-block select-none" title="強制更新整個 APP (清除快取並重啟)">v1.2.0</p>
+      </div>
+    </div>
+
+    <!-- 加權指數區 (大盤資訊) -->
+    <div id="index-card" class="bg-slate-900/60 backdrop-blur-md border border-slate-800/80 rounded-3xl p-4 pt-6 shadow-2xl relative overflow-visible transition-all duration-700 mb-5">
+      <div id="index-glow" class="absolute inset-0 opacity-0 transition-opacity duration-700 pointer-events-none bg-[radial-gradient(circle_at_center,var(--glow-color)_0%,transparent_70%)]"></div>
+      
+      <!-- 「加權指數」標題改為左上角獨立標籤 -->
+      <span class="absolute -top-2.5 left-5 bg-slate-950/90 text-indigo-400 border border-slate-800/85 px-2.5 py-0.5 rounded-lg text-xs font-black tracking-wider z-20 select-none shadow-md">加權指數</span>
+      
+      <!-- 隱藏時間戳記以維持 JS 運作 -->
+      <span id="index-time" class="hidden">--:--:--</span>
+
+      <div class="relative z-10">
+        <!-- 大盤數字與走勢圖左右並排 -->
+        <div class="flex items-center justify-between md:justify-center gap-4 md:gap-16 mt-1 max-w-lg mx-auto">
+          <!-- 左側數據區 -->
+          <div class="flex-1 min-w-0">
+            <div id="index-val" class="text-4xl font-black tracking-tight text-slate-100 font-mono">
+              0.00
+            </div>
+            <div id="index-change" class="text-lg font-black mt-0.5 font-mono text-slate-400">
+              0.00 (0.00%)
+            </div>
+          </div>
+          
+          <!-- 右側區域：走勢圖 + 高低數據水平並行 -->
+          <div class="flex flex-col items-center shrink-0">
+            <!-- 右側長版走勢圖 (無邊框與背景，懸浮透明) -->
+            <div id="index-sparkline" class="flex items-center justify-center w-[180px] h-[50px] shrink-0">
+              <svg class="w-[180px] h-[50px]" viewBox="0 0 180 50">
+                <text x="90" y="29" fill="#64748b" font-size="11" font-weight="bold" text-anchor="middle">載入中...</text>
+              </svg>
+            </div>
+            <!-- 大盤高低小數據，水平並列在走勢圖下方 -->
+            <div id="index-hl" class="flex justify-between w-full text-[10.5px] font-extrabold mt-1 px-1">
+              <span class="text-slate-500 whitespace-nowrap">▲ <span id="index-high" class="font-mono text-rose-500">0.00</span></span>
+              <span class="text-slate-500 whitespace-nowrap">▼ <span id="index-low" class="font-mono text-emerald-400">0.00</span></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 底部：自選股列表 -->
+    <div class="flex items-center justify-between px-1 mb-8">
+      <span class="text-sm font-bold text-slate-400 tracking-wider">自選股清單</span>
+      <span id="favorites-count" class="text-xs font-bold text-slate-500 font-mono">0 / 20</span>
+    </div>
+
+    <!-- 自選股卡片清單容器 (Grid 佈局) -->
+    <div id="favorites-list" class="grid grid-cols-1 md:grid-cols-2 gap-8">
+      <!-- 卡片會動態渲染於此 -->
+    </div>
+
+    <!-- 自選股與更新頻率設定 (放置在最底下) -->
+    <div class="bg-slate-900/40 backdrop-blur-sm border border-slate-800/50 rounded-3xl p-5 mt-6 shadow-xl">
+      <div class="flex items-center justify-between border-b border-slate-800/50 pb-3 mb-4">
+        <span class="text-sm font-bold text-slate-400">參數設定與自選股</span>
+        <div class="flex items-center gap-1.5">
+          <span class="text-xs font-semibold text-slate-400">每</span>
+          <input id="setting-interval" type="number" min="5" max="300" onchange="updateIntervalSetting()" class="w-14 bg-slate-950 border border-slate-800 rounded-lg py-0.5 text-center font-mono font-black text-indigo-400 focus:border-indigo-500 focus:outline-none text-sm" />
+          <span class="text-xs font-semibold text-slate-400">秒更新</span>
+        </div>
+      </div>
+      <div class="flex gap-2">
+        <input id="stock-input" type="text" placeholder="代碼 (例如 2330)" class="w-44 bg-slate-950 border border-slate-800/80 rounded-2xl px-3 py-3 text-sm placeholder-slate-650 focus:border-indigo-500 focus:outline-none font-bold text-slate-200" />
+        <button id="btn-add" onclick="addFavorite()" class="w-20 bg-gradient-to-r from-indigo-500 to-violet-600 hover:from-indigo-600 hover:to-violet-700 active:scale-95 text-white font-bold py-3 rounded-2xl transition-all flex items-center justify-center gap-1 shadow-lg text-sm shrink-0">
+          新增
+        </button>
+        <button id="btn-delete" onclick="deleteFavoriteFromInput()" class="w-16 bg-slate-900/60 hover:bg-slate-800/80 border border-slate-800 text-slate-400 hover:text-rose-400 active:scale-95 font-bold py-3 rounded-2xl transition-all flex items-center justify-center shadow-md text-sm shrink-0">
+          刪除
+        </button>
+      </div>
+    </div>
+
+  </main>
+
+  <script>
+    // 狀態宣告
+    let favorites = JSON.parse(localStorage.getItem('tw_stock_favorites')) || ['2330', '2317'];
+    let refreshInterval = parseInt(localStorage.getItem('tw_stock_refresh_interval')) || 20;
+
+    let previousPrices = {}; // 用於比較新舊價，決定閃爍紅燈或綠燈 { code: price }
+    let stockHistory = {};   // 儲存每檔股票的今日分時成交價歷史資料 { code: [{t: minutesSince0900, p: price}] }
+    let lastFetchedData = null; // 暫存最新的即時報價，用於背景載入歷史資料完成時重繪
+    let countdownSeconds = refreshInterval;
+    let isFetching = false;
+    
+    let wasTrading = null;
+    let countdownTimer = null;
+    let clockTimer = null;
+
+    // 取得台灣時間 (UTC+8) 的時間物件
+    function getTaiwanTimeParts() {
+      const now = new Date();
+      // 取得台灣的 epoch 毫秒數 (將 UTC 時間加上 8 小時)
+      const twMs = now.getTime() + (8 * 3600000);
+      const twDate = new Date(twMs);
+      
+      const day = twDate.getUTCDay(); // 0 是週日, 1-5 是週一至五, 6 是週六
+      const hours = twDate.getUTCHours();
+      const minutes = twDate.getUTCMinutes();
+      
+      return { day, hours, minutes };
+    }
+
+    // 判斷是否為台灣股市交易開盤時間：週一至週五 08:55 ~ 13:40
+    function isTaiwanTradingTime() {
+      const parts = getTaiwanTimeParts();
+      
+      // 週一至週五
+      if (parts.day < 1 || parts.day > 5) return false;
+      
+      const timeInMinutes = parts.hours * 60 + parts.minutes;
+      const startMinutes = 8 * 60 + 55; // 08:55
+      const endMinutes = 13 * 60 + 40;  // 13:40
+      
+      return timeInMinutes >= startMinutes && timeInMinutes <= endMinutes;
+    }
+
+    // 取得台灣時間 (UTC+8) 的日期字串 (YYYYMMDD)
+    function getTaiwanDateString() {
+      const now = new Date();
+      const twMs = now.getTime() + (8 * 3600000);
+      const twDate = new Date(twMs);
+      const yyyy = twDate.getUTCFullYear();
+      const mm = String(twDate.getUTCMonth() + 1).padStart(2, '0');
+      const dd = String(twDate.getUTCDate()).padStart(2, '0');
+      return `${yyyy}${mm}${dd}`;
+    }
+
+    // 取得目前台灣時間自 09:00 起的分鐘數 (0~270，超出範圍仍保留原值以供過濾使用)
+    function getTaiwanMinutesSince0900() {
+      const parts = getTaiwanTimeParts();
+      return (parts.hours * 60 + parts.minutes) - (9 * 60);
+    }
+
+    // 保存歷史走勢快取至 localStorage
+    function saveHistoryCache() {
+      try {
+        const dateStr = getTaiwanDateString();
+        const cacheData = {
+          date: dateStr,
+          version: 2, // 版本號，用於辨識新格式 {t,p}
+          history: stockHistory
+        };
+        localStorage.setItem('tw_stock_history_cache', JSON.stringify(cacheData));
+      } catch (err) {
+        console.error('儲存走勢快取失敗:', err);
+      }
+    }
+
+    // 從 localStorage 載入歷史走勢快取 (支援新 {t,p} 格式，自動拋棄舊格式)
+    function loadHistoryCache() {
+      try {
+        const cacheRaw = localStorage.getItem('tw_stock_history_cache');
+        if (!cacheRaw) return;
+        const cacheData = JSON.parse(cacheRaw);
+        const dateStr = getTaiwanDateString();
+        // 必須同日期且版本號為 2（新格式）才載入，否則清除以防格式衝突
+        if (cacheData && cacheData.date === dateStr && cacheData.version === 2 && cacheData.history) {
+          stockHistory = JSON.parse(JSON.stringify(cacheData.history));
+          console.log('成功從本地快取載入今日走勢資料 (v2 格式)');
+        } else {
+          console.log('快取已過期、格式不符或不存在，清除舊快取');
+          localStorage.removeItem('tw_stock_history_cache');
+        }
+      } catch (err) {
+        console.error('載入走勢快取失敗:', err);
+      }
+    }
+
+    // 更新台股市場交易狀態與 UI (若有狀態切換)
+    function updateMarketStatus() {
+      const isTrading = isTaiwanTradingTime();
+      
+      // 若 App 處於後台，則暫不刷新狀態與發送請求
+      if (document.hidden) return;
+      
+      const barContainer = document.getElementById('countdown-bar-container');
+      const label = document.getElementById('countdown-label');
+      const text = document.getElementById('countdown-text');
+      
+      if (isTrading) {
+        if (wasTrading !== true) {
+          wasTrading = true;
+          if (barContainer) barContainer.classList.remove('hidden');
+          if (label) label.innerText = '更新倒數';
+          countdownSeconds = refreshInterval;
+          startCountdown();
+          fetchPrices(); // 回到交易時間，立刻發送請求刷新
+        }
+      } else {
+        if (wasTrading !== false) {
+          wasTrading = false;
+          // 停止 20 秒倒數計時器
+          if (countdownTimer) {
+            clearInterval(countdownTimer);
+            countdownTimer = null;
+          }
+          if (barContainer) barContainer.classList.add('hidden');
+          if (label) label.innerText = '市場狀態';
+          
+          const parts = getTaiwanTimeParts();
+          let statusStr = '已收盤';
+          if (parts.day === 6 || parts.day === 0) {
+            statusStr = '週末休市';
+          } else {
+            const timeInMinutes = parts.hours * 60 + parts.minutes;
+            if (timeInMinutes < 8 * 60 + 55) {
+              statusStr = '未開盤';
+            } else {
+              statusStr = '已收盤';
+            }
+          }
+          if (text) text.innerText = statusStr;
+          
+          fetchPrices(); // 非交易時間剛切換或剛開啟時，依然執行一次性抓取
+        }
+      }
+    }
+
+    // 具有 AbortController 逾時機制的 Fetch 輔助器
+    async function fetchWithTimeout(resource, options = {}) {
+      const { timeout = 4000 } = options;
+      const controller = new AbortController();
+      const id = setTimeout(() => controller.abort(), timeout);
+      
+      try {
+        const response = await fetch(resource, {
+          ...options,
+          signal: controller.signal
+        });
+        clearTimeout(id);
+        return response;
+      } catch (err) {
+        clearTimeout(id);
+        throw err;
+      }
+    }
+
+    // 具有多重備用代理 (CORS Proxy) 與逾時控制的健壯 Fetch 函式，防範同源政策阻擋與伺服器掛起
+    async function fetchWithFallback(url) {
+      // 判斷回傳的 JSON 是否為有效的已知格式（支援 TWSE 與 Yahoo Finance 等必要欄位）
+      function isValidData(data) {
+        return data && (data.msgArray || data.ohlcArray || data.chart);
+      }
+
+      // 1. 嘗試直接發送請求 (限時 2.5 秒，快速確認 CORS 是否阻擋)
+      try {
+        const response = await fetchWithTimeout(url, { timeout: 2500 });
+        if (response.ok) {
+          const data = await response.json();
+          if (isValidData(data)) return data;
+        }
+      } catch (err) {
+        console.warn('直接 Fetch 失敗，嘗試使用第一備用 Proxy (AllOrigins):', err);
+      }
+
+      // 2. 嘗試使用第一備用代理：AllOrigins (限時 5 秒)
+      try {
+        const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
+        const response = await fetchWithTimeout(proxyUrl, { timeout: 5000 });
+        if (response.ok) {
+          const raw = await response.json();
+          if (raw && raw.contents) {
+            const data = JSON.parse(raw.contents);
+            if (isValidData(data)) return data;
+          }
+        }
+      } catch (err) {
+        console.warn('AllOrigins Proxy 失敗，嘗試使用第二備用 Proxy (Codetabs):', err);
+      }
+
+      // 3. 嘗試使用第二備用代理：Codetabs (限時 5 秒)
+      try {
+        const proxyUrl = `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`;
+        const response = await fetchWithTimeout(proxyUrl, { timeout: 5000 });
+        if (response.ok) {
+          const data = await response.json();
+          if (isValidData(data)) return data;
+        }
+      } catch (err) {
+        console.warn('Codetabs Proxy 失敗，嘗試使用第三備用 Proxy (CorsProxy.io):', err);
+      }
+
+      // 4. 嘗試使用第三備用代理：CorsProxy.io (限時 5 秒)
+      try {
+        const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(url)}`;
+        const response = await fetchWithTimeout(proxyUrl, { timeout: 5000 });
+        if (response.ok) {
+          const data = await response.json();
+          if (isValidData(data)) return data;
+        }
+      } catch (err) {
+        console.error('所有連接途徑皆失敗:', err);
+      }
+
+      throw new Error('All connection methods failed');
+    }
+
+    // 將 ts 欄位 (HHMMSS 字串) 轉換為自 09:00 起的分鐘數
+    function tsToMinutes(ts) {
+      if (!ts || ts.length < 4) return null;
+      const hh = parseInt(ts.substring(0, 2), 10);
+      const mm = parseInt(ts.substring(2, 4), 10);
+      const totalMin = hh * 60 + mm - (9 * 60); // 相對於 09:00
+      return totalMin;
+    }
+
+    // 從證交所分時圖 API 獲取今日歷史點位
+    async function fetchStockHistory(code) {
+      const timestamp = Date.now();
+      
+      // 【大盤指數 t00】：使用 getChartOhlcStatis.jsp 直接取得今日完整分時資料
+      if (code === 't00') {
+        // 若快取已有足夠點位且非交易時間，跳過重抓
+        if (stockHistory['t00'] && stockHistory['t00'].length > 5 && !isTaiwanTradingTime()) return;
+        try {
+          const url = `https://mis.twse.com.tw/stock/api/getChartOhlcStatis.jsp?ex=tse&ch=t00.tw&fqy=1&_=${timestamp}`;
+          const data = await fetchWithFallback(url);
+          if (data && Array.isArray(data.ohlcArray) && data.ohlcArray.length > 0) {
+            const points = [];
+            data.ohlcArray.forEach(item => {
+              const t = tsToMinutes(item.ts);
+              const p = parseFloat(item.c);
+              if (t !== null && t >= 0 && t <= 270 && !isNaN(p) && p > 0) {
+                points.push({ t, p });
+              }
+            });
+            if (points.length > 0) {
+              stockHistory['t00'] = points;
+              saveHistoryCache();
+              return;
+            }
+          }
+        } catch (err) {
+          console.warn('大盤分時資料讀取失敗:', err);
+        }
+        if (stockHistory['t00'] === undefined) stockHistory['t00'] = [];
+        return;
+      }
+
+      // 【個股】：使用 Yahoo Finance API 取得今日 5 分鐘分時歷史
+      // 若快取已有足夠點位且非交易時間，跳過重抓以省流量
+      if (stockHistory[code] && stockHistory[code].length > 5 && !isTaiwanTradingTime()) return;
+
+      // 解析 Yahoo Finance JSON 回傳結構，轉換為 {t, p} 點位陣列
+      function parseYahooChart(data) {
+        const result = data?.chart?.result?.[0];
+        if (!result) return null;
+        const timestamps = result.timestamp;
+        const closes = result.indicators?.quote?.[0]?.close;
+        if (!Array.isArray(timestamps) || !Array.isArray(closes)) return null;
+        const points = [];
+        timestamps.forEach((ts, i) => {
+          // 純算術轉換：Unix 秒數 + 8h 偵移 = 台灣時間，再取時分計算自 09:00 起的分鐘數
+          // 不依賴 Date 物件的本地時區，於所有瀏覽器環境下均準確
+          const taiwanSec = ts + (8 * 3600);
+          const hours = Math.floor(taiwanSec / 3600) % 24;
+          const minutes = Math.floor(taiwanSec / 60) % 60;
+          const t = hours * 60 + minutes - (9 * 60);
+          const p = parseFloat(closes[i]);
+          if (t >= 0 && t <= 270 && !isNaN(p) && p > 0) {
+            points.push({ t, p });
+          }
+        });
+        return points.length > 0 ? points : null;
+      }
+
+      // 優先嘗試上市 (.TW)，失敗後自動切換上櫃 (.TWO)
+      const suffixes = [`${code}.TW`, `${code}.TWO`];
+      for (const ticker of suffixes) {
+        try {
+          const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?range=1d&interval=5m`;
+          const data = await fetchWithFallback(yahooUrl);
+          if (data) {
+            const points = parseYahooChart(data);
+            if (points) {
+              stockHistory[code] = points;
+              saveHistoryCache();
+              return;
+            }
+          }
+        } catch (err) {
+          console.warn(`Yahoo 個股 ${ticker} 分時歷史讀取失敗，嘗試下一個後綴:`, err);
+        }
+      }
+
+      // 降級：所有途徑失敗或無資料，初始化為空陣列，等待輪詢逐步累積
+      if (stockHistory[code] === undefined) {
+        stockHistory[code] = [];
+      }
+    }
+
+    // 載入所有自選股與大盤指數的歷史資料
+    async function initFavoritesHistory() {
+      const codesToLoad = ['t00', ...favorites];
+      const promises = codesToLoad.map(code => fetchStockHistory(code));
+      await Promise.all(promises);
+    }
+
+    // 系統初始化 (修正優化載入順序，防範歷史請求阻塞 UI 啟動與倒數計時)
+    window.addEventListener('DOMContentLoaded', () => {
+      // 優先載入今日歷史走勢本地快取
+      loadHistoryCache();
+
+      // 初始化設定值
+      document.getElementById('setting-interval').value = refreshInterval;
+      document.getElementById('favorites-count').innerText = `${favorites.length} / 20`;
+      
+      // 繪製骨架載入狀態
+      renderLoadingState();
+      
+      // 立刻啟動時鐘與市場狀態檢測 (會自動觸發首輪股價拉取與定時器建立)
+      startClock();
+      
+      // 背景非同步載入歷史資料，避免阻塞主執行緒。載入完成後會自動渲染走勢圖
+      initFavoritesHistory().then(() => {
+        console.log('背景歷史走勢資料載入完成');
+        // 重繪以呈現載入成功的 SVG Sparklines 折線圖
+        if (lastFetchedData) {
+          renderData(lastFetchedData);
+        }
+      }).catch(err => {
+        console.error('背景歷史資料加載失敗:', err);
+      });
+    });
+
+    // PWA Service Worker 註冊
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js')
+          .then((reg) => console.log('PWA Service Worker 註冊成功，Scope 為:', reg.scope))
+          .catch((err) => console.error('PWA Service Worker 註冊失敗:', err));
+      });
+    }
+
+    // Page Visibility API - 智慧省電與休眠監聽
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) {
+        console.log('App 進入後台或螢幕關閉，暫停所有定時器');
+        if (countdownTimer) {
+          clearInterval(countdownTimer);
+          countdownTimer = null;
+        }
+        if (clockTimer) {
+          clearInterval(clockTimer);
+          clockTimer = null;
+        }
+      } else {
+        console.log('App 回到前景，重啟時鐘與檢測市場');
+        // 重設狀態檢測鎖，促使重新執行前景刷新與定時器建立
+        wasTrading = null;
+        startClock();
+      }
+    });
+
+    // 每秒更新時鐘與倒數進度條
+    function startClock() {
+      if (clockTimer) clearInterval(clockTimer);
+      clockTimer = setInterval(() => {
+        const now = new Date();
+        const timeString = now.toTimeString().split(' ')[0];
+        document.getElementById('live-clock').innerText = timeString;
+        updateMarketStatus(); // 每秒進行一次交易時間檢測
+      }, 1000);
+      
+      // 初次呼叫避免延遲
+      const now = new Date();
+      document.getElementById('live-clock').innerText = now.toTimeString().split(' ')[0];
+      updateMarketStatus();
+    }
+
+    function startCountdown() {
+      if (countdownTimer) clearInterval(countdownTimer);
+      
+      const bar = document.getElementById('countdown-bar-fill');
+      const text = document.getElementById('countdown-text');
+      
+      const updateUI = () => {
+        if (countdownSeconds <= 0) {
+          countdownSeconds = refreshInterval;
+          if (bar) {
+            bar.classList.remove('transition-all', 'duration-1000', 'linear');
+            bar.style.width = '100%';
+            bar.offsetHeight; // 強制重繪
+            bar.classList.add('transition-all', 'duration-1000', 'linear');
+          }
+          if (text) text.innerText = `${countdownSeconds}s`;
+          fetchPrices();
+        } else {
+          const pct = (countdownSeconds / refreshInterval) * 100;
+          if (bar) bar.style.width = `${pct}%`;
+          if (text) text.innerText = `${countdownSeconds}s`;
+        }
+      };
+
+      updateUI(); // 立即更新 UI，避免 1 秒延遲與文字閃爍
+
+      countdownTimer = setInterval(() => {
+        countdownSeconds--;
+        updateUI();
+      }, 1000);
+    }
+
+    // 更新頻率設定變更
+    function updateIntervalSetting() {
+      const input = document.getElementById('setting-interval');
+      let val = parseInt(input.value);
+      
+      if (isNaN(val) || val < 5) {
+        val = 5;
+        input.value = 5;
+        showToast('為避免證交所阻擋，頻率最低為 5 秒', 'info');
+      } else if (val > 300) {
+        val = 300;
+        input.value = 300;
+        showToast('更新頻率最長為 300 秒', 'info');
+      }
+      
+      refreshInterval = val;
+      localStorage.setItem('tw_stock_refresh_interval', refreshInterval);
+      
+      countdownSeconds = refreshInterval;
+      
+      // 僅在交易時間重新開始倒數計時器
+      if (isTaiwanTradingTime()) {
+        startCountdown();
+      }
+      
+      showToast(`更新頻率已設為 ${refreshInterval} 秒`, 'success');
+    }
+
+    // 手動重新整理
+    function manualRefresh() {
+      if (isFetching) return;
+      
+      // 僅在交易時間重新開始倒數計時器
+      if (isTaiwanTradingTime()) {
+        countdownSeconds = refreshInterval;
+        startCountdown();
+      }
+      
+      fetchPrices();
+    }
+
+    // 骨架載入狀態
+    function renderLoadingState() {
+      const listContainer = document.getElementById('favorites-list');
+      if (favorites.length === 0) {
+        listContainer.innerHTML = `
+          <div class="text-center py-10 text-slate-500 font-bold text-sm bg-slate-900/20 rounded-2xl border border-dashed border-slate-800/80 md:col-span-2">
+            自選股空空如也，請在最下方輸入代碼新增
+          </div>
+        `;
+        return;
+      }
+      
+      let skeletons = '';
+      favorites.forEach(() => {
+        skeletons += `
+          <div class="animate-pulse bg-slate-900/40 border border-slate-800/60 rounded-2xl p-4 pt-6 flex justify-between items-center shadow-lg relative">
+            
+            <!-- 代碼與名稱組合 skeleton (Pill Badge) -->
+            <div class="absolute -top-3.5 left-4 flex items-center gap-2 z-20 px-3 py-1 bg-slate-800 rounded-full border border-slate-700/80 shadow-md">
+              <div class="h-4 md:h-5 bg-slate-700 rounded w-16 md:w-24"></div>
+              <div class="h-3 md:h-4 bg-slate-700/80 rounded w-8"></div>
+            </div>
+            
+            <!-- 股價與漲跌數據群組 -->
+            <div class="flex items-center gap-3 md:gap-4 pl-2 md:pl-4 mt-1">
+              <!-- 第一欄：股價 skeleton -->
+              <div class="w-[75px] md:w-[95px] flex flex-col justify-center items-end whitespace-nowrap shrink-0">
+                <div class="h-7 md:h-8 bg-slate-800 rounded-lg w-[70px]"></div>
+              </div>
+              
+              <!-- 第二欄：漲跌 skeleton -->
+              <div class="w-[70px] md:w-[85px] flex flex-col justify-center items-end whitespace-nowrap shrink-0">
+                <div class="h-7 md:h-8 bg-slate-850 rounded-lg w-[60px]"></div>
+              </div>
+            </div>
+            
+            <!-- 第三欄：走勢圖 skeleton -->
+            <div class="w-[90px] md:w-[110px] shrink-0 flex items-center justify-end">
+              <div class="w-full h-[40px] bg-slate-900/20 rounded-xl"></div>
+            </div>
+            
+          </div>
+        `;
+      });
+      listContainer.innerHTML = skeletons;
+    }
+
+    // 抓取即時個股報價
+    async function fetchPrices() {
+      if (isFetching) return;
+      if (document.hidden) return; // 如果進入背景，不發送請求
+      isFetching = true;
+      
+      const clockWidget = document.getElementById('clock-widget');
+      if (clockWidget) clockWidget.classList.add('animate-pulse');
+      
+      let exCh = 'tse_t00.tw';
+      if (favorites.length > 0) {
+        const favoritesQuery = favorites.map(code => `tse_${code}.tw|otc_${code}.tw`).join('|');
+        exCh += '|' + favoritesQuery;
+      }
+      
+      try {
+        const timestamp = Date.now();
+        const url = `https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=${encodeURIComponent(exCh)}&_=${timestamp}`;
+        
+        const data = await fetchWithFallback(url);
+        
+        if (data && data.msgArray) {
+          lastFetchedData = data.msgArray; // 暫存起來，供歷史資料加載完畢後重繪走勢圖使用
+          renderData(data.msgArray);
+        } else {
+          showToast('無法取得股價資料 (非交易時間或 API 異常)', 'error');
+        }
+      } catch (err) {
+        console.error('抓取報價發生錯誤:', err);
+        showToast('無法取得股價，已開啟離線模式', 'error');
+      } finally {
+        isFetching = false;
+        setTimeout(() => {
+          if (clockWidget) clockWidget.classList.remove('animate-pulse');
+        }, 400);
+      }
+    }
+
+    // 繪製 SVG Sparkline 折線走勢圖，X 軸固定代表 09:00~13:30 共 270 分鐘，以時間定位各點
+    function generateSparklineSvg(code, yesterdayPrice, currentPrice, width = 95, height = 40) {
+      const TOTAL_MINUTES = 270; // 09:00 到 13:30 共 270 分鐘
+      const history = stockHistory[code] || []; // [{t: minutesSince0900, p: price}]
+      
+      // 開盤前或無資料點時的例外處理
+      if (history.length < 1) {
+        return `
+          <svg class="w-[${width}px] h-[${height}px] shrink-0" viewBox="0 0 ${width} ${height}">
+            <text x="${width/2}" y="${height/2 + 4}" fill="#64748b" font-size="11" font-weight="bold" text-anchor="middle">尚無走勢</text>
+          </svg>
+        `;
+      }
+      
+      // 以昨日收盤價（昨收）為中心基準點進行上下對稱縮放，使昨收線永遠置中於 height / 2
+      const refPrice = (isNaN(yesterdayPrice) || yesterdayPrice <= 0)
+        ? (history[0]?.p || currentPrice)
+        : yesterdayPrice;
+      
+      let maxDeviation = 0;
+      history.forEach(pt => {
+        const dev = Math.abs(pt.p - refPrice);
+        if (dev > maxDeviation) maxDeviation = dev;
+      });
+      
+      // 限制最小波動區間（至少為基準昨收價的 1%），防止平盤/微小波動被極度放大
+      const minDev = refPrice * 0.01;
+      if (maxDeviation < minDev) maxDeviation = minDev;
+      
+      const yMin = refPrice - maxDeviation;
+      const yMax = refPrice + maxDeviation;
+      const baselineY = height / 2;
+      
+      // 根據最新價相較昨日收盤價決定走勢線顏色：紅漲、綠跌、灰持平
+      let strokeColor = '#94a3b8';
+      if (currentPrice > refPrice) strokeColor = '#ef4444';
+      else if (currentPrice < refPrice) strokeColor = '#22c55e';
+
+      // 當只有一個點位時，繪製一條水平的目前價位線
+      if (history.length === 1) {
+        const pt = history[0];
+        const y = 2 + (1 - (pt.p - yMin) / (yMax - yMin)) * (height - 4);
+        return `
+          <svg class="w-[${width}px] h-[${height}px] shrink-0" viewBox="0 0 ${width} ${height}">
+            <line x1="0" y1="${baselineY}" x2="${width}" y2="${baselineY}" stroke="#475569" stroke-dasharray="2,2" stroke-width="1" />
+            <line x1="0" y1="${y}" x2="${width}" y2="${y}" stroke="${strokeColor}" stroke-width="2" stroke-linecap="round" />
+          </svg>
+        `;
+      }
+      
+      // 計算每個點的 X 座標（依照 09:00~13:30 的時間比例定位）
+      const pointsStr = history.map(pt => {
+        const x = Math.min(pt.t / TOTAL_MINUTES, 1) * width;
+        const y = 2 + (1 - (pt.p - yMin) / (yMax - yMin)) * (height - 4);
+        return `${x.toFixed(1)},${y.toFixed(1)}`;
+      }).join(' ');
+      
+      return `
+        <svg class="w-[${width}px] h-[${height}px] shrink-0" viewBox="0 0 ${width} ${height}">
+          <!-- 淺灰色虛線基礎線 (代表昨收) -->
+          <line x1="0" y1="${baselineY}" x2="${width}" y2="${baselineY}" stroke="#475569" stroke-dasharray="2,2" stroke-width="1" />
+          <!-- 價格走勢折線 -->
+          <polyline points="${pointsStr}" fill="none" stroke="${strokeColor}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
+      `;
+    }
+
+    // 渲染大盤與自選股卡片清單
+    function renderData(msgArray) {
+      // 1. 處理大盤加權指數 (tse_t00.tw)
+      const indexItem = msgArray.find(x => x.c === 't00');
+      const indexCard = document.getElementById('index-card');
+      const indexGlow = document.getElementById('index-glow');
+      
+      if (indexItem) {
+        const yVal = parseFloat(indexItem.y); // 昨收點數
+        const oVal = parseFloat(indexItem.o); // 開盤
+        const hVal = parseFloat(indexItem.h); // 最高
+        const lVal = parseFloat(indexItem.l); // 最低
+        
+        let currentVal = parseFloat(indexItem.z); // 當前點數
+        if (isNaN(currentVal) || currentVal <= 0) {
+          if (previousPrices['t00'] !== undefined && previousPrices['t00'] > 0) {
+            currentVal = previousPrices['t00'];
+          } else {
+            currentVal = isNaN(oVal) || oVal <= 0 ? yVal : oVal;
+          }
+        }
+        previousPrices['t00'] = currentVal;
+        const diff = currentVal - yVal;
+        const pct = yVal > 0 ? (diff / yVal) * 100 : 0;
+        
+        document.getElementById('index-time').innerText = indexItem.t || '--:--:--';
+        document.getElementById('index-val').innerText = Math.round(currentVal).toLocaleString('zh-TW');
+        
+        const changeTextEl = document.getElementById('index-change');
+        
+        const highEl = document.getElementById('index-high');
+        const lowEl = document.getElementById('index-low');
+        
+        highEl.innerText = Math.round(hVal).toLocaleString('zh-TW');
+        lowEl.innerText = Math.round(lVal).toLocaleString('zh-TW');
+        
+        // 根據最高價/最低價與昨收的實際漲跌關係動態調整字體顏色（高於昨收為紅，低於為綠，持平為灰）
+        if (hVal > yVal) {
+          highEl.className = 'font-mono text-rose-500';
+        } else if (hVal < yVal) {
+          highEl.className = 'font-mono text-emerald-400';
+        } else {
+          highEl.className = 'font-mono text-slate-300';
+        }
+        
+        if (lVal > yVal) {
+          lowEl.className = 'font-mono text-rose-500';
+        } else if (lVal < yVal) {
+          lowEl.className = 'font-mono text-emerald-400';
+        } else {
+          lowEl.className = 'font-mono text-slate-300';
+        }
+        
+        const roundedDiff = Math.round(diff);
+        const indexValEl = document.getElementById('index-val');
+        
+        // 渲染大盤漲跌字體顏色與呼吸背景燈
+        if (diff > 0) {
+          indexValEl.className = 'text-4xl font-black tracking-tight font-mono text-rose-500';
+          changeTextEl.innerHTML = `▲ +${roundedDiff.toLocaleString('zh-TW')} (+${pct.toFixed(2)}%)`;
+          changeTextEl.className = 'text-lg font-black mt-0.5 font-mono text-rose-500';
+          
+          indexGlow.style.setProperty('--glow-color', 'rgba(239, 68, 68, 0.08)');
+          indexGlow.style.opacity = '1';
+          indexCard.style.borderColor = 'rgba(239, 68, 68, 0.3)';
+          indexCard.style.boxShadow = '0 10px 30px -5px rgba(239, 68, 68, 0.1)';
+        } else if (diff < 0) {
+          indexValEl.className = 'text-4xl font-black tracking-tight font-mono text-emerald-400';
+          changeTextEl.innerHTML = `▼ ${roundedDiff.toLocaleString('zh-TW')} (${pct.toFixed(2)}%)`;
+          changeTextEl.className = 'text-lg font-black mt-0.5 font-mono text-emerald-400';
+          
+          indexGlow.style.setProperty('--glow-color', 'rgba(34, 197, 94, 0.08)');
+          indexGlow.style.opacity = '1';
+          indexCard.style.borderColor = 'rgba(34, 197, 94, 0.3)';
+          indexCard.style.boxShadow = '0 10px 30px -5px rgba(34, 197, 94, 0.1)';
+        } else {
+          indexValEl.className = 'text-4xl font-black tracking-tight font-mono text-slate-100';
+          changeTextEl.innerHTML = `0 (0.00%)`;
+          changeTextEl.className = 'text-lg font-black mt-0.5 font-mono text-slate-400';
+          indexGlow.style.opacity = '0';
+          indexCard.style.borderColor = 'rgba(51, 65, 85, 0.8)';
+          indexCard.style.boxShadow = 'none';
+        }
+        
+        // 【動態疊加大盤歷史資料】將最新價格與當前台灣時間推入大盤歷史
+        if (stockHistory['t00'] === undefined) stockHistory['t00'] = [];
+        if (!isNaN(currentVal) && currentVal > 0 && isTaiwanTradingTime()) {
+          const tNow = getTaiwanMinutesSince0900();
+          const lastPt = stockHistory['t00'][stockHistory['t00'].length - 1];
+          // 避免同一分鐘重複推入 (用 getChartOhlcStatis 已有該分鐘時跳過)
+          if (!lastPt || lastPt.t !== tNow) {
+            stockHistory['t00'].push({ t: tNow, p: currentVal });
+          } else {
+            // 同分鐘則更新最新價（蓋掉舊值使走勢更即時）
+            lastPt.p = currentVal;
+          }
+        }
+        
+        // 繪製大盤走勢圖 (尺寸為 180 x 50)
+        const indexSparklineSvg = generateSparklineSvg('t00', yVal, currentVal, 180, 50);
+        document.getElementById('index-sparkline').innerHTML = indexSparklineSvg;
+      }
+ 
+      // 2. 處理自選股卡片清單
+      const listContainer = document.getElementById('favorites-list');
+      document.getElementById('favorites-count').innerText = `${favorites.length} / 20`;
+      
+      if (favorites.length === 0) {
+        listContainer.innerHTML = `
+          <div class="text-center py-10 text-slate-500 font-bold text-sm bg-slate-900/20 rounded-2xl border border-dashed border-slate-800/80">
+            自選股空空如也，請在最下方輸入代碼新增
+          </div>
+        `;
+        return;
+      }
+      
+      let html = '';
+      
+      favorites.forEach(code => {
+        const item = msgArray.find(x => x.c === code && x.n && x.n.trim() !== "");
+        
+        if (item) {
+          const name = item.n;
+          const yPrice = parseFloat(item.y); // 昨收價
+          
+          let currentPrice = parseFloat(item.z); // 當前成交價
+          if (isNaN(currentPrice) || currentPrice <= 0) {
+            // 當前成交價為空或無成交時，優先使用上一次取得的有效價格
+            if (previousPrices[code] !== undefined && previousPrices[code] > 0) {
+              currentPrice = previousPrices[code];
+            } else {
+              // 其次使用今日開盤價
+              const oPrice = parseFloat(item.o);
+              if (!isNaN(oPrice) && oPrice > 0) {
+                currentPrice = oPrice;
+              } else {
+                // 最後才使用昨日收盤價
+                currentPrice = yPrice;
+              }
+            }
+          }
+          const change = currentPrice - yPrice;
+          const pct = yPrice > 0 ? (change / yPrice) * 100 : 0;
+          
+          // 【動態疊加歷史資料】將定時取得的最新報價（附時間戳）加入歷史陣列尾端
+          if (stockHistory[code] === undefined) stockHistory[code] = [];
+          if (!isNaN(currentPrice) && currentPrice > 0) {
+            const tNow = getTaiwanMinutesSince0900();
+            if (stockHistory[code].length === 0) {
+              // 若為空，使用當前時間點初始化第一個點位
+              stockHistory[code] = [{ t: tNow, p: currentPrice }];
+            } else if (isTaiwanTradingTime()) {
+              // 僅在開盤時間內推入新點位
+              const lastPt = stockHistory[code][stockHistory[code].length - 1];
+              if (!lastPt || lastPt.t !== tNow) {
+                stockHistory[code].push({ t: tNow, p: currentPrice });
+                if (stockHistory[code].length > 270) stockHistory[code].shift();
+              } else {
+                lastPt.p = currentPrice; // 同分鐘更新最新價
+              }
+            }
+          }
+          
+          // 【一般漲跌的「閃爍亮燈」邏輯】比較新價格與前一次價格
+          let flashClass = '';
+          if (previousPrices[code] !== undefined) {
+            const oldPrice = previousPrices[code];
+            if (currentPrice > oldPrice) {
+              flashClass = 'flash-red';
+            } else if (currentPrice < oldPrice) {
+              flashClass = 'flash-green';
+            } else {
+              flashClass = 'flash-gray'; 
+            }
+          }
+          previousPrices[code] = currentPrice;
+          
+          // 【台灣股市 10% 漲跌停常亮燈鎖定邏輯】
+          const uPrice = parseFloat(item.u); // 漲停價
+          const wPrice = parseFloat(item.w); // 跌停價
+          let isLimitUp = !isNaN(uPrice) && uPrice > 0 && Math.abs(currentPrice - uPrice) < 0.001;
+          let isLimitDown = !isNaN(wPrice) && wPrice > 0 && Math.abs(currentPrice - wPrice) < 0.001;
+          
+          let limitClass = '';
+          if (isLimitUp) {
+            limitClass = 'limit-up';
+          } else if (isLimitDown) {
+            limitClass = 'limit-down';
+          }
+          
+          // 卡片漲跌配色
+          let priceColorClass = 'text-slate-300';
+          let trendSymbol = '';
+          let changeSign = '';
+          
+          if (change > 0) {
+            priceColorClass = 'text-rose-500';
+            trendSymbol = '▲';
+            changeSign = '+';
+          } else if (change < 0) {
+            priceColorClass = 'text-emerald-400';
+            trendSymbol = '▼';
+            changeSign = '';
+          }
+          
+          if (isLimitUp) priceColorClass = 'text-rose-100';
+          if (isLimitDown) priceColorClass = 'text-emerald-100';
+  
+          // 繪製對應股票的走勢圖代碼 (寬 110px, 高 40px)
+          const sparklineSvg = generateSparklineSvg(code, yPrice, currentPrice, 110, 40);
+          
+		  // 動態決定小數點位數：>=1000整數，100~999一位小數，<100兩位小數
+		  let decimalPlaces = 2;
+		  if (currentPrice >= 1000) decimalPlaces = 0;
+		  else if (currentPrice >= 100) decimalPlaces = 1;
+
+		  const formattedPrice = currentPrice.toFixed(decimalPlaces);
+		  const formattedChange = (change === 0) ? "0" : change.toFixed(decimalPlaces);		  
+  
+              // 卡片四欄式排版（名稱 ＋ 股價 ＋ 漲跌幅 ＋ 走勢圖，代碼嵌在左上方）
+              html += `
+                <div id="card-${code}" class="favorite-card ${limitClass} ${flashClass} bg-slate-900/60 border border-slate-800/80 rounded-2xl p-4 pt-6 flex justify-between items-center shadow-lg hover:border-slate-700/80 relative" data-code="${code}">
+    
+                  <!-- 高質感膠囊徽章 (Pill Badge) -->
+                  <div class="absolute -top-5 left-4 flex items-center gap-2 z-20 px-3 py-1 bg-slate-800/90 backdrop-blur-md border border-slate-700/80 rounded-full shadow-md">
+                    <span class="text-slate-100 font-black text-xl md:text-2xl tracking-wide truncate max-w-[160px] md:max-w-[260px]">${name}</span>
+                    <span class="text-indigo-400 text-[14px] md:text-base font-black font-mono pt-0.5">${code}</span>
+                  </div>
+    
+                  <!-- 股價與漲跌數據群組 -->
+                  <div class="flex items-center gap-3 md:gap-1 pl-2 md:pl-4 z-10 mt-1">
+                    <!-- 第一欄：當前股價 (大字靠右，防換行，固定寬度) -->
+                    <div class="w-[90px] md:w-[105px] flex flex-col justify-center items-end whitespace-nowrap shrink-0">
+                      <div class="text-3xl md:text-4xl font-black tracking-tight font-mono ${priceColorClass} leading-none">${formattedPrice}</div>
+                    </div>
+    
+                    <!-- 第二欄：漲跌點數 + 百分比 (雙行靠右，防換行，固定寬度) -->
+                    <div class="w-[90px] md:w-[110px] flex flex-col justify-center items-end whitespace-nowrap shrink-0">
+                      <div class="text-xl md:text-2xl font-black font-mono ${priceColorClass} leading-tight">${trendSymbol}${changeSign}${formattedChange}</div>
+                      <div class="text-sm md:text-base font-bold font-mono ${priceColorClass} leading-tight">${changeSign}${pct.toFixed(2)}%</div>
+                    </div>
+                  </div>
+    
+                  <!-- 第三欄：SVG 走勢圖 (固定寬度靠右) -->
+                  <div class="w-[90px] md:w-[110px] shrink-0 flex items-center justify-end">
+                    ${sparklineSvg}
+                  </div>
+    
+                </div>
+              `;
+            } else {
+              html += `
+                <div id="card-${code}" class="bg-slate-900/40 border border-slate-800/40 rounded-2xl p-4 pt-6 flex justify-between items-center shadow-lg relative" data-code="${code}">
+                  
+                  <!-- 高質感膠囊徽章 (Pill Badge) - 連線驗證中 -->
+                  <div class="absolute -top-3.5 left-4 flex items-center gap-2 z-20 px-3 py-1 bg-slate-800/90 backdrop-blur-md border border-slate-700/80 rounded-full shadow-md">
+                    <span class="text-slate-500 font-black text-sm md:text-base tracking-wide truncate max-w-[120px] md:max-w-[200px]">連線驗證中</span>
+                    <span class="text-slate-500 text-[10px] md:text-xs font-black font-mono pt-0.5">${code}</span>
+                  </div>
+    
+                  <!-- 股價與漲跌數據群組 (連線驗證中) -->
+                  <div class="flex items-center gap-6 md:gap-10 pl-2 md:pl-4 z-10 mt-1">
+                    <!-- 第一欄：讀取狀態 (當前股價位置) -->
+                    <div class="w-[75px] md:w-[95px] flex flex-col justify-center items-end whitespace-nowrap shrink-0">
+                      <span class="text-sm font-bold font-mono text-slate-600">讀取中...</span>
+                    </div>
+                    
+                    <!-- 第二欄：空白/漲跌佔位 -->
+                    <div class="w-[70px] md:w-[85px] flex flex-col justify-center items-end whitespace-nowrap shrink-0">
+                      <span class="text-sm font-bold font-mono text-slate-600">--</span>
+                    </div>
+                  </div>
+                  
+                  <!-- 第三欄：極簡走勢圖佔位 -->
+                  <div class="w-[90px] md:w-[110px] shrink-0 flex items-center justify-end">
+                    <span class="text-xs text-slate-650 font-bold font-mono">--</span>
+                  </div>
+                  
+                </div>
+              `;
+            }
+      });
+      
+      listContainer.innerHTML = html;
+      
+      // 成功渲染資料後，保存最新走勢至快取中
+      saveHistoryCache();
+      
+      // 閃爍特效 0.5秒後淡出
+      setTimeout(() => {
+        document.querySelectorAll('.favorite-card').forEach(card => {
+          card.classList.remove('flash-red', 'flash-green', 'flash-gray');
+        });
+      }, 500);
+    }
+
+    // 新增自選股邏輯
+    async function addFavorite() {
+      const input = document.getElementById('stock-input');
+      const code = input.value.trim();
+      
+      if (!code) {
+        showToast('請輸入股票代碼', 'error');
+        return;
+      }
+      
+      if (!/^[a-zA-Z0-9]+$/.test(code)) {
+        showToast('股票代碼必須為英數組合', 'error');
+        return;
+      }
+      
+      if (favorites.includes(code)) {
+        showToast(`代碼 ${code} 已在自選名單中`, 'error');
+        return;
+      }
+      
+      if (favorites.length >= 20) {
+        showToast('自選股已達上限 20 檔', 'error');
+        return;
+      }
+      
+      showToast(`正在驗證代碼 ${code}...`, 'info');
+      const btnAdd = document.getElementById('btn-add');
+      btnAdd.disabled = true;
+      btnAdd.classList.add('opacity-50');
+      
+      try {
+        const query = `tse_${code}.tw|otc_${code}.tw`;
+        const timestamp = Date.now();
+        const url = `https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=${encodeURIComponent(query)}&_=${timestamp}`;
+        
+        const data = await fetchWithFallback(url);
+        
+        if (data && data.msgArray) {
+          const item = data.msgArray.find(x => x.c === code && x.n && x.n.trim() !== "");
+          
+          if (item) {
+            favorites.push(code);
+            localStorage.setItem('tw_stock_favorites', JSON.stringify(favorites));
+            input.value = '';
+            
+            showToast(`成功新增 ${item.n} (${code})`, 'success');
+            
+            // 異步順序要求：1. 先載入此新加入股票的分時圖歷史資料
+            try {
+              await fetchStockHistory(code);
+            } catch (err) {
+              console.error('下載新股歷史走勢失敗:', err);
+            }
+            
+            // 2. 下載完成後，立即刷新股價重繪列表
+            fetchPrices();
+          } else {
+            showToast(`查無代碼 ${code}，請確認是否正確`, 'error');
+          }
+        } else {
+          showToast('無法取得驗證資料，請稍後再試', 'error');
+        }
+      } catch (err) {
+        console.error(err);
+        showToast('驗證連線失敗，請檢查網路狀態', 'error');
+      } finally {
+        btnAdd.disabled = false;
+        btnAdd.classList.remove('opacity-50');
+      }
+    }
+
+    // 刪除自選股邏輯
+    function deleteFavorite(code) {
+      favorites = favorites.filter(x => x !== code);
+      localStorage.setItem('tw_stock_favorites', JSON.stringify(favorites));
+      delete previousPrices[code]; // 清除舊價快取
+      delete stockHistory[code];   // 清除歷史點位
+      
+      showToast(`已刪除自選股 ${code}`, 'success');
+      fetchPrices();
+    }
+
+    // 從輸入框進行刪除自選股
+    function deleteFavoriteFromInput() {
+      const input = document.getElementById('stock-input');
+      const code = input.value.trim();
+      
+      if (!code) {
+        showToast('請輸入欲刪除的股票代碼', 'error');
+        return;
+      }
+      
+      if (!favorites.includes(code)) {
+        showToast(`代碼 ${code} 不在自選名單中`, 'error');
+        return;
+      }
+      
+      deleteFavorite(code);
+      input.value = '';
+    }
+
+    // 強制更新整個 App 的快取與 Service Worker，並重新載入網頁 (保留 localStorage 自選股)
+    async function forceUpdateApp() {
+      showToast('正在強制更新 APP...', 'info');
+      
+      try {
+        // 0. 刪除本地歷史走勢快取
+        localStorage.removeItem('tw_stock_history_cache');
+        
+        // 1. 尋找並刪除所有 Cache Storage
+        if ('caches' in window) {
+          const cacheKeys = await caches.keys();
+          await Promise.all(
+            cacheKeys.map(key => {
+              console.log('刪除快取:', key);
+              return caches.delete(key);
+            })
+          );
+        }
+        
+        // 2. 解除註冊所有 Service Workers
+        if ('serviceWorker' in navigator) {
+          const registrations = await navigator.serviceWorker.getRegistrations();
+          await Promise.all(
+            registrations.map(reg => {
+              console.log('解除註冊 SW:', reg.scope);
+              return reg.unregister();
+            })
+          );
+        }
+        
+        showToast('更新完成，正在重新載入...', 'success');
+        
+        // 3. 延時以展示提示，隨後執行強制刷新重新下載網頁代碼
+        setTimeout(() => {
+          window.location.reload(true);
+        }, 800);
+      } catch (err) {
+        console.error('強制更新 APP 失敗:', err);
+        showToast('更新失敗，請手動整理網頁', 'error');
+      }
+    }
+
+    // Toast 提示框架
+    function showToast(message, type = 'info') {
+      const container = document.getElementById('toast-container');
+      if (!container) return;
+      
+      const toast = document.createElement('div');
+      toast.className = `flex items-center gap-3 px-4 py-3 rounded-2xl bg-slate-900/95 border backdrop-blur-md shadow-2xl transition-all duration-300 translate-y-4 opacity-0 max-w-xs w-full mx-auto`;
+      
+      let borderColor = 'border-slate-800';
+      let icon = '';
+      
+      if (type === 'success') {
+        borderColor = 'border-emerald-500/50';
+        icon = `
+          <svg class="w-5 h-5 text-emerald-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"></path>
+          </svg>
+        `;
+      } else if (type === 'error') {
+        borderColor = 'border-rose-500/50';
+        icon = `
+          <svg class="w-5 h-5 text-rose-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+          </svg>
+        `;
+      } else {
+        borderColor = 'border-indigo-500/50';
+        icon = `
+          <svg class="w-5 h-5 text-indigo-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+          </svg>
+        `;
+      }
+      
+      toast.classList.add(borderColor);
+      toast.innerHTML = `
+        ${icon}
+        <span class="text-sm font-bold text-slate-100">${message}</span>
+      `;
+      
+      container.appendChild(toast);
+      
+      setTimeout(() => {
+        toast.classList.remove('translate-y-4', 'opacity-0');
+      }, 10);
+      
+      setTimeout(() => {
+        toast.classList.add('opacity-0', 'scale-95');
+        setTimeout(() => {
+          toast.remove();
+        }, 300);
+      }, 3000);
+    }
+  </script>
+</body>
+</html>
